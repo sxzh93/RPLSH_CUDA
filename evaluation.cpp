@@ -37,7 +37,7 @@ void evaluate(unsigned int *gt_matrix, unsigned int *predicted_matrix, unsigned 
     set<unsigned int> s2;
     vector<unsigned int> common_data;
     int num_common = 0;
-    for(int i=0;i<nquery;i++){
+    for(size_t i=0;i<nquery;i++){
         s1.clear(); s2.clear(); common_data.clear();
         s1 = set<unsigned int>(gt_matrix + i*K, gt_matrix + (i+1)*K);
         s2 = set<unsigned int>(predicted_matrix + i*K, predicted_matrix + (i+1)*K);
