@@ -202,7 +202,8 @@ void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, 
 
 
 void generate_random_matrix_projection_cpu(float * matrix_projection, int size) {
-    std::default_random_engine generator;
+    unsigned seed = 2018;
+    std::default_random_engine generator(seed);
     std::normal_distribution<float> distribution(0.0, 1.0);
     for (int i = 0; i < size; i++) {
         matrix_projection[i] = distribution(generator);
@@ -366,7 +367,8 @@ void build_index(float* matrix_data, size_t npoints, int dim, int ntables, unsig
     sMatrixSize matrix_size;
 
     init_matrix_size(matrix_size, npoints, dim, codelen);
-    generate_random_matrix_projection(matrix_projection, codelen * dim);
+    // generate_random_matrix_projection(matrix_projection, codelen * dim);
+    generate_random_matrix_projection_cpu(matrix_projection, codelen * dim);
     build_index_gpu(matrix_data, matrix_projection, codes, matrix_size);
 
 }

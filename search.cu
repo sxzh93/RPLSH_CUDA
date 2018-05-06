@@ -265,7 +265,7 @@ void load_index(char* filename,  unsigned int *&codes, float *&matrix_projection
         in.read((char*)&(codes[i]),sizeof(unsigned int));
     }
     in.close();
-    printf("Index loaded! dim %u, ntable %u, npoints %u\n", dim, ntable, npoint);
+    printf("Index loaded! dim %u, codelen %u ntable %u, npoints %u\n", dim, codelen, ntable, npoint);
 }
 
 
@@ -495,6 +495,18 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
 }
 
 
+void saveResults(char* filename, unsigned int *result, int nquery, int K){
+    std::ofstream out(filename,std::ios::binary);
+    for(int i=0; i<nquery; i++){
+        out.write((char*)&K, sizeof(int));
+        for(int j=0; j<K; j++){
+            int id = result[i*K + j];
+            out.write((char*)&id, sizeof(int));
+        }
+    }
+    out.close();
+}
+
 
 int main(int argc, char** argv){
 
@@ -515,7 +527,7 @@ int main(int argc, char** argv){
     char* index_file = argv[1];
     char* base_file = argv[2];
     char* query_file = argv[3];
-    //char* result_file = argv[4];
+    char* result_file = argv[4];
     ntable = atoi(argv[5]);
     int L = atoi(argv[6]); // retrieve L points from index
     int K = atoi(argv[7]); // return K points at the end using real feature
@@ -559,6 +571,6 @@ int main(int argc, char** argv){
     std::cout << "query searching time: " << diff.count() << "\n";
 
     PRINT_PROFILER;
-    //index.saveResults(result_file);
+    saveResults(result_file, result, nquery, K);
     return 0;
 }
