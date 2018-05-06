@@ -8,6 +8,9 @@
 #include <faiss/gpu/GpuIndexIVFFlat.h>
 #include <faiss/gpu/StandardGpuResources.h>
 
+#include <iostream>
+#include <fstream>
+
 using namespace std;
 
 void load_data(char* filename, float*& data, unsigned int& num, unsigned int& dim) { // load data with sift10K pattern
