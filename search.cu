@@ -1,6 +1,6 @@
 #include <iostream>
 #include <fstream>
-#include <chrono>
+//#include <chrono>
 
 #include <assert.h>
 
@@ -28,7 +28,7 @@
 #include <thrust/fill.h>
 #include <thrust/sequence.h>
 
-
+#include "cycletimer.h"
 
 #ifndef min
 #define min(a,b) ((a < b) ? a : b)
@@ -51,8 +51,8 @@ typedef struct _matrixSize      // Optional Command-line multiplier for matrix s
 
 #define PROFILE 1
 
-static double ticker[] = {0};
-static double timer[7] = {0};
+static double ticker[6] = {0};
+static double timer[6] = {0};
 static const int ENCODE_QUERY_MATRIX = 0;
 static const int COMPUTE_HAMMING_DISTANCE = 1;
 static const int HAMMING_DISTANCE_SORTING = 2;
@@ -60,8 +60,8 @@ static const int COMPUTE_EUCLIDEAN_DISTANCE = 3;
 static const int EUCLIDEAN_DISTANCE_SORTING = 4;
 static const int GET_RESULT = 5;
 #if PROFILE
-#define START_ACTIVITY(X) ticker[X]=std::chrono::high_resolution_clock::now()
-#define END_ACTIVITY(X) timer[X]+=std::chrono::high_resolution_clock::now()-ticker[X]
+#define START_ACTIVITY(X) ticker[X]=currentSeconds()
+#define END_ACTIVITY(X) timer[X]+=currentSeconds()-ticker[X]
 #define PRINT_PROFILER cout<<"encode query matrix:"<<timer[0]<<endl<<"compute hamming distance:"<<timer[1]<<endl<<"hamming distance sorting:"<<timer[2]<<"compute euclidean distance:"<<timer[3]<<"euclidean distance sorting:"<<timer[4]<<"get result:"<<timer[5]<<endl;
 #else
 #define START_ACTIVITY(X)
