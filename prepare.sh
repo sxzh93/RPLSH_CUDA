@@ -1,6 +1,7 @@
 #!/bin/bash
 
-## add path
-echo "export PATH=/usr/local/cuda-9.0/bin${PATH:+:${PATH}}" >> ~/.bashrc
-echo "export LD_LIBRARY_PATH=/usr/local/cuda-9.0/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> ~/.bashrc
+wget ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz
+wget ftp://ftp.irisa.fr/local/texmex/corpus/gist.tar.gz
 
+tar xvzf sift.tar.gz
+tar xvzf gist.tar.gz
