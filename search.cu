@@ -67,7 +67,7 @@ static const int GET_RESULT = 5;
 #define PRINT_PROFILER
 #endif
 
-// vertion 1, using if braching
+// vertion 1, do not using if braching, have bugs
 __global__
 void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, int ntables, int N){
     int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -86,6 +86,30 @@ void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, 
     }
     codes[table_id*npoints + point_id] |= bit;
 }
+
+
+
+__global__
+void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, int ntables)
+{
+    int point_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int table_id = blockIdx.y * blockDim.y + threadIdx.y;
+    if(point_id >= npoints || table_id >= ntables)
+        return;
+
+    unsigned int codelen = 32*ntables;
+    unsigned int bit = 0;
+    unsigned int result = 0;
+    unsigned int column_start = table_id*32;
+    for(int i=0;i<32;i++){
+        if(result_matrix[point_id*codelen + column_start + i] > 0){
+            bit = 1u << i;
+            result |= bit;
+        }
+    }
+    codes[table_id*npoints+point_id] = result;
+}
+
 
 
 // we can use shared memory to reduce memory access time: load query_base into shared memory, how to determize needed size
@@ -122,8 +146,8 @@ void kernel_hamming_distance_v1(unsigned int* d_query_codes, unsigned int* d_bas
 
 __global__
 void kernel_hamming_distance_v2(unsigned int* d_query_codes, unsigned int* d_base_codes, unsigned int* d_hamming_distance, int nbase, int nquery, int ntable, unsigned int* d_hamming_distance_idx){
-    int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int base_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int base_idx = blockIdx.y * blockDim.y + threadIdx.y;
 
     if(base_idx>=nbase || query_idx>=nquery || query_idx*nbase + base_idx >= (nquery*nbase))
         return;
@@ -147,6 +171,7 @@ void kernel_hamming_distance_v2(unsigned int* d_query_codes, unsigned int* d_bas
     }
     //d_hamming_distance[query_idx*nbase + base_idx] = result;
     d_hamming_distance[query_idx*nbase + base_idx] = result + (query_idx<<16);
+    //d_hamming_distance[query_idx*nbase + base_idx] = result;
     d_hamming_distance_idx[query_idx*nbase + base_idx] = base_idx;
 }
 
@@ -154,7 +179,7 @@ void kernel_hamming_distance_v2(unsigned int* d_query_codes, unsigned int* d_bas
 
 //TODO optimize IO
 __global__
-void kernel_euclidean_distance_v1(float* d_query_matrix, float* d_base_matrix, unsigned int* d_hamming_distance_idx, float* d_euclidean_distance,  int nquery, int nbase, int L, int dim, float min_value, float max_value, unsigned int* d_euclidean_distance_idx){
+void kernel_euclidean_distance_v1(float* d_query_matrix, float* d_base_matrix, unsigned int* d_hamming_distance_idx, double* d_euclidean_distance,  int nquery, int nbase, int L, int dim, float min_value, float max_value, unsigned int* d_euclidean_distance_idx){
     int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int L_idx = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -162,10 +187,10 @@ void kernel_euclidean_distance_v1(float* d_query_matrix, float* d_base_matrix, u
         return;
 
     int base_idx = d_hamming_distance_idx[query_idx*nbase + L_idx];
-    int result = 0;
+    double result = 0;
     int query_start = query_idx*dim;
     int base_start = base_idx*dim;
-    float diff;
+    double diff;
     for(int i=0;i<dim;i++){
         diff = d_query_matrix[query_start+i] - d_base_matrix[base_start+i];
         result += diff * diff;
@@ -204,6 +229,22 @@ void kernel_get_result_v1(unsigned int* d_euclidean_distance_idx, unsigned int* 
 //     d_l2_distance[query_idx*L+base_idx] += compute_l2_distance(d_query_matrix[query_idx], d_base_matrix[base_idx]);
 // }
 
+
+void print_hash_float(float *array, int size){
+    float sum = 0;
+    for(int i=0;i<size;i++){
+        sum+=array[i];
+    }
+    printf("sum %f\n", sum);
+}
+
+void print_hash_int(unsigned int *array, int size){
+    unsigned int sum = 0;
+    for(int i=0;i<size;i++){
+        sum+=array[i];
+    }
+    printf("sum %u\n", sum);
+}
 
 void load_data(char* filename, float*& data, unsigned int& num, unsigned int& dim) { // load data with sift10K pattern
     ifstream in(filename, ios::binary);
@@ -291,10 +332,22 @@ void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSiz
     checkCudaErrors(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix_size.uiWB, matrix_size.uiHA, matrix_size.uiWA, &alpha, d_B, matrix_size.uiWB, d_A, matrix_size.uiWA, &beta, d_C, matrix_size.uiWB));
 
     // Run binarize kernel on the GPU
-    int blockSize = 1024;
-    unsigned int size_codes =  npoint*ntable;
-    int numBlocks = (size_codes + blockSize - 1) / blockSize;
-    kernel_binarize_v1<<<numBlocks, blockSize>>>(d_C, d_codes, npoint, ntable, size_C);
+    // int blockSize = 1024;
+    // unsigned int size_codes =  npoint*ntable;
+    // int numBlocks = (size_codes + blockSize - 1) / blockSize;
+    // kernel_binarize_v1<<<numBlocks, blockSize>>>(d_C, d_codes, npoint, ntable, size_C);
+    
+    // float *h_C = new float[size_C];
+    // checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
+    // float sum = 0;
+    // for(unsigned int i=0;i<ntable*32;    //     sum += h_C[i];
+    // printf("projection result sum %f\n", sum);
+
+
+
+    dim3 threadsPerBlock(1024/ntable, ntable);
+    dim3 numBlocks((npoint + threadsPerBlock.x -1) / threadsPerBlock.x, (ntable+threadsPerBlock.y-1) / threadsPerBlock.y);
+    kernel_binarize_v2<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoint, ntable);
     checkCudaErrors(cudaDeviceSynchronize());
 
     // clean up device memory
@@ -309,7 +362,8 @@ void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSiz
 void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, float *projection_matrix, unsigned int* base_codes, unsigned int dim, unsigned int ntable, unsigned int nbase, unsigned int nquery, int L, int K, float min_value, float max_value){
 
     //device memory
-    float *d_query_matrix, *d_base_matrix, *d_projection_matrix, *d_euclidean_distance;
+    float *d_query_matrix, *d_base_matrix, *d_projection_matrix;
+    double *d_euclidean_distance;
     unsigned int *d_query_codes, *d_base_codes, *d_hamming_distance, *d_hamming_distance_idx, *d_euclidean_distance_idx, *d_result;
     int codelen = ntable * 32;
 
@@ -318,7 +372,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
 
     // prepare d_projection_matrix and d_query code
     //Input: d_query_matrix
-    //auto s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(ENCODE_QUERY_MATRIX);
 
     unsigned int size_query_matrix = nquery * dim;
@@ -343,12 +396,24 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     init_matrix_size(matrix_size, nquery, dim, codelen);
     compute_index_gpu(d_query_matrix, d_projection_matrix, d_query_codes, matrix_size, nquery, ntable);
 
+    //------------------- debug -------------------
+    // printf("projection matrix: \n");
+    // print_hash_float(projection_matrix, size_projection_matrix);
+    
+    // unsigned int *h_query_codes = new unsigned int[size_query_codes];
+    // checkCudaErrors(cudaMemcpy(h_query_codes, d_query_codes, mem_size_query_codes, cudaMemcpyDeviceToHost));
+    
+    // unsigned int sum_u = 0;
+    // for(int table_id = 0; table_id<ntable;table_id++){
+    //     sum_u += h_query_codes[table_id*nquery];
+    // }
+    // printf("query 0, sum of codes %u \n", sum_u);
+    //------------------- debug -------------------
+
+
     //Useless: d_projection_matrix
     checkCudaErrors(cudaFree(d_projection_matrix));
 
-    // auto e = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double> diff = e-s;
-    // std::cout << "step1 index time " << diff.count() << "\n";
     END_ACTIVITY(ENCODE_QUERY_MATRIX);
 
 
@@ -358,7 +423,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     //Memory Cost: memcost = 2 * base_size * 1M (if nquery=1000, memcost=2G)
 
     //Input: d_base_codes
-    // s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(COMPUTE_HAMMING_DISTANCE);
     unsigned int size_base_codes = nbase * ntable;
     unsigned int mem_size_base_codes = sizeof(unsigned int) * size_base_codes;
@@ -385,26 +449,41 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     checkCudaErrors(cudaFree(d_query_codes));
     checkCudaErrors(cudaFree(d_base_codes));
 
-    // e = std::chrono::high_resolution_clock::now();
-    // diff = e-s;
-    // std::cout << "step2 hamming_distance computing time " << diff.count() << "\n";
+    //------------------- debug -------------------
+    // unsigned int *h_hamming_distance = new unsigned int[size_hamming_distance];
+    // checkCudaErrors(cudaMemcpy(h_hamming_distance, d_hamming_distance, mem_hamming_distance , cudaMemcpyDeviceToHost));
+
+    // unsigned int sum_hd = 0;
+    // for(size_t i = 0; i < nbase; i++){
+    //     sum_hd += (unsigned int)h_hamming_distance[i];
+    // }
+    // printf("step2 hamming distance, query 0 sum_hd %u\n\n", sum_hd);
+    //------------------- debug -------------------
     END_ACTIVITY(COMPUTE_HAMMING_DISTANCE);
+    
+
+
 
     //============== Step3: Sort According to Hamming Distance  =====================
-    // s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(HAMMING_DISTANCE_SORTING);
     thrust::device_ptr<unsigned int> d_ptr_keys = thrust::device_pointer_cast(d_hamming_distance);
     thrust::device_ptr<unsigned int> d_ptr_values = thrust::device_pointer_cast(d_hamming_distance_idx);
 
     thrust::sort_by_key(d_ptr_keys, d_ptr_keys + size_hamming_distance, d_ptr_values);
 
+    //------------------- debug -------------------
+    // unsigned int *h_hamming_distance_idx = new unsigned int[size_hamming_distance_idx];
+    // checkCudaErrors(cudaMemcpy(h_hamming_distance_idx, d_hamming_distance_idx, mem_hamming_distance_idx , cudaMemcpyDeviceToHost));
+
+    // printf("step3 hamming distance sort\n");
+    // for(int i=0;i<20;i++){
+    //     printf("%d ", (int)h_hamming_distance_idx[i]);
+    // }
+    // printf("\n\n");
+    //------------------- debug -------------------
 
     //Useless: d_hamming_distance
     checkCudaErrors(cudaFree(d_hamming_distance));
-
-    // e = std::chrono::high_resolution_clock::now();
-    // diff = e-s;
-    // std::cout << "step3 hamming_distance sorting time " << diff.count() << "\n";
     END_ACTIVITY(HAMMING_DISTANCE_SORTING);
 
     //============== Step4: Compute Euclidean Distance Bwtween Real Feature Vector =====================
@@ -423,7 +502,7 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
 
     //Output: d_euclidean_distance
     unsigned int size_euclidean_distance = nquery * L;
-    unsigned int mem_size_euclidean_distance = sizeof(float) * size_euclidean_distance;
+    unsigned int mem_size_euclidean_distance = sizeof(double) * size_euclidean_distance;
     checkCudaErrors(cudaMalloc((void **) &d_euclidean_distance, mem_size_euclidean_distance));
 
     //Onput: d_euclidean_distance_idx
@@ -438,35 +517,55 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     kernel_euclidean_distance_v1<<<numBlocks, threadsPerBlock>>>(d_query_matrix, d_base_matrix, d_hamming_distance_idx, d_euclidean_distance, nquery, nbase, L, dim, min_value, max_value, d_euclidean_distance_idx);
     checkCudaErrors(cudaDeviceSynchronize());
 
+
+    //------------------- debug -------------------
+    // printf("step4 euclidean distance \n");
+    // float *h_euclidean_distance = new float[size_euclidean_distance];
+    // checkCudaErrors(cudaMemcpy(h_euclidean_distance, d_euclidean_distance, mem_size_euclidean_distance , cudaMemcpyDeviceToHost));
+
+    // unsigned int *h_euclidean_distance_idx = new unsigned int[size_euclidean_distance_idx];
+    // checkCudaErrors(cudaMemcpy(h_euclidean_distance_idx, d_euclidean_distance_idx, mem_size_euclidean_distance_idx , cudaMemcpyDeviceToHost));
+
+    
+    // for(int i=0;i<20;i++){
+    //     printf("%f %d ", h_euclidean_distance[i], (int)h_euclidean_distance_idx[i]);
+    // }
+    // printf("\n\n");
+    //------------------- debug -------------------
+
+
     //Useless
     checkCudaErrors(cudaFree(d_query_matrix));
     checkCudaErrors(cudaFree(d_base_matrix));
     checkCudaErrors(cudaFree(d_hamming_distance_idx));
 
-    // e = std::chrono::high_resolution_clock::now();
-    // diff = e-s;
-    // std::cout << "step4 euclidean distance computing time " << diff.count() << "\n";
     END_ACTIVITY(COMPUTE_EUCLIDEAN_DISTANCE);
 
 
     //============== Step5: Sort Base According to Euclidean Distance =====================
-    // s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(EUCLIDEAN_DISTANCE_SORTING);
-    thrust::device_ptr<float> d_ptr_keys_2 = thrust::device_pointer_cast(d_euclidean_distance);
+    thrust::device_ptr<double> d_ptr_keys_2 = thrust::device_pointer_cast(d_euclidean_distance);
     thrust::device_ptr<unsigned int> d_ptr_values_2 = thrust::device_pointer_cast(d_euclidean_distance_idx);
     thrust::sort_by_key(d_ptr_keys_2, d_ptr_keys_2 + size_euclidean_distance, d_ptr_values_2);
+
+    //------------------- debug -------------------
+    // printf("step5 euclidean distance sort\n");
+    // checkCudaErrors(cudaMemcpy(h_euclidean_distance, d_euclidean_distance, mem_size_euclidean_distance , cudaMemcpyDeviceToHost));
+    // checkCudaErrors(cudaMemcpy(h_euclidean_distance_idx, d_euclidean_distance_idx, mem_size_euclidean_distance_idx , cudaMemcpyDeviceToHost));
+    // for(int i=0;i<20;i++){
+    //     printf("%f %d ", h_euclidean_distance[i], (int)h_euclidean_distance_idx[i]);
+    // }
+    // printf("\n\n");
+    //------------------- debug -------------------
+
 
     //Useless: d_euclidean_distance
     checkCudaErrors(cudaFree(d_euclidean_distance));
 
-    // e = std::chrono::high_resolution_clock::now();
-    // diff = e-s;
-    // std::cout << "step5 euclidean distance sorting time " << diff.count() << "\n";
     END_ACTIVITY(EUCLIDEAN_DISTANCE_SORTING);
 
     //============== Step6: Get Result  =====================
     //Onput: d_result
-    // s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(GET_RESULT);
     unsigned int size_result = nquery * K;
     unsigned int mem_size_result  = sizeof(unsigned int) * size_result;
@@ -482,15 +581,20 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     //move result to CPU
     checkCudaErrors(cudaMemcpy(result, d_result, mem_size_result, cudaMemcpyDeviceToHost));
 
+    //------------------- debug -------------------
+    // printf("step6 get result\n");
+    // for(int i=0;i<30;i++){
+    //     printf("%d ", result[i]);
+    // }
+    // printf("\n\n");
+    //------------------- debug -------------------
+
+    
+
     //free memory
     checkCudaErrors(cudaFree(d_result));
     checkCudaErrors(cudaFree(d_euclidean_distance_idx));
 
-
-
-    // e = std::chrono::high_resolution_clock::now();
-    // diff = e-s;
-    // std::cout << "step6 get result time" << diff.count() << "\n";
     END_ACTIVITY(GET_RESULT);
 }
 
@@ -563,6 +667,7 @@ int main(int argc, char** argv){
         knn_search(result+n_completed*K, base_matrix, query_matrix + n_completed*query_dim, matrix_projection, base_codes, base_dim, ntable, nbase, tmp_nquery, L, K, min(min_value_base, min_value_query), max(max_value_base, max_value_query));
         n_remain -= tmp_nquery;
         n_completed += tmp_nquery;
+        
     }
     auto e = std::chrono::high_resolution_clock::now();
 
