@@ -1,6 +1,6 @@
 #include <iostream>
 #include <fstream>
-//#include <chrono>
+#include <chrono>
 
 #include <assert.h>
 
@@ -28,8 +28,6 @@
 #include <thrust/fill.h>
 #include <thrust/sequence.h>
 
-#include "cycletimer.h"
-
 #ifndef min
 #define min(a,b) ((a < b) ? a : b)
 #endif
@@ -51,7 +49,7 @@ typedef struct _matrixSize      // Optional Command-line multiplier for matrix s
 
 #define PROFILE 1
 
-static double ticker[6] = {0};
+static std::chrono::_V2::system_clock::time_point ticker[6];
 static double timer[6] = {0};
 static const int ENCODE_QUERY_MATRIX = 0;
 static const int COMPUTE_HAMMING_DISTANCE = 1;
@@ -60,8 +58,8 @@ static const int COMPUTE_EUCLIDEAN_DISTANCE = 3;
 static const int EUCLIDEAN_DISTANCE_SORTING = 4;
 static const int GET_RESULT = 5;
 #if PROFILE
-#define START_ACTIVITY(X) ticker[X]=currentSeconds()
-#define END_ACTIVITY(X) timer[X]+=currentSeconds()-ticker[X]
+#define START_ACTIVITY(X) ticker[X]=std::chrono::high_resolution_clock::now();
+#define END_ACTIVITY(X) timer[X]+=(std::chrono::high_resolution_clock::now()-ticker[X]).count()
 #define PRINT_PROFILER cout<<"encode query matrix:"<<timer[0]<<endl<<"compute hamming distance:"<<timer[1]<<endl<<"hamming distance sorting:"<<timer[2]<<"compute euclidean distance:"<<timer[3]<<"euclidean distance sorting:"<<timer[4]<<"get result:"<<timer[5]<<endl;
 #else
 #define START_ACTIVITY(X)
@@ -517,7 +515,7 @@ int main(int argc, char** argv){
     char* index_file = argv[1];
     char* base_file = argv[2];
     char* query_file = argv[3];
-    char* result_file = argv[4];
+    //char* result_file = argv[4];
     ntable = atoi(argv[5]);
     int L = atoi(argv[6]); // retrieve L points from index
     int K = atoi(argv[7]); // return K points at the end using real feature
@@ -560,7 +558,7 @@ int main(int argc, char** argv){
     std::chrono::duration<double> diff = e-s;
     std::cout << "query searching time: " << diff.count() << "\n";
 
-    // index.saveResults(argv[4]);
     PRINT_PROFILER;
+    //index.saveResults(result_file);
     return 0;
 }
