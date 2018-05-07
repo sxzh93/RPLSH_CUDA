@@ -18,7 +18,7 @@
 #include <cuda.h>
 #include <curand.h> // generate normal distribution
 
-
+#include "util.h"
 
 #ifndef min
 #define min(a,b) ((a < b) ? a : b)
@@ -33,37 +33,6 @@ using namespace std;
     printf("Error at %s:%d\n",__FILE__,__LINE__);\
     return EXIT_FAILURE;}} while(0)
 
-
-typedef struct _matrixSize      // Optional Command-line multiplier for matrix sizes
-{
-    unsigned int uiWA, uiHA, uiWB, uiHB, uiWC, uiHC;
-} sMatrixSize;
-
-
-void load_data(char* filename, float*& data, size_t& num, int& dim) { // load data with sift10K pattern
-    ifstream in(filename, ios::binary);
-    if (!in.is_open()) {cout << "open file error" << endl; exit(-1);}
-    //read dim
-    in.read((char*)&dim, 4);
-    
-    //read fsize
-    in.seekg(0, ios::end);
-    ios::pos_type ss = in.tellg();
-    size_t fsize = (size_t)ss;
-
-    //read number of vector(dim + data)
-    num = fsize / (dim + 1) / 4;
-
-    //read data
-    data = new float[num * dim];
-    in.seekg(0, ios::beg);
-    for (size_t i = 0; i < num; i++) {
-        in.seekg(4, ios::cur);
-        in.read((char*)(data + i * dim), dim * 4);
-    }
-    in.close();
-    cout << "load data okay, npoints " << num << ", dim " << dim << endl;
-}
 
 void printDiff(float *data1, float *data2, int width, int height, int iListLength, float fListTol)
 {
@@ -448,8 +417,8 @@ int main(int argc, char** argv) {
 
     // load data
     float* matrix_data = NULL;
-    size_t npoints;
-    int dim;
+    unsigned int npoints;
+    unsigned int dim;
     load_data(data_file, matrix_data, npoints, dim);
     
     // build index
