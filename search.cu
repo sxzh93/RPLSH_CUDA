@@ -44,11 +44,6 @@ using namespace std;
     return EXIT_FAILURE;}} while(0)
 
 
-typedef struct _matrixSize      // Optional Command-line multiplier for matrix sizes
-{
-    unsigned int uiWA, uiHA, uiWB, uiHB, uiWC, uiHC;
-} sMatrixSize;
-
 #define PROFILE 1
 
 static std::chrono::_V2::system_clock::time_point ticker[6];
