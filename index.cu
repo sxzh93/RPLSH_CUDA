@@ -34,48 +34,7 @@ using namespace std;
     return EXIT_FAILURE;}} while(0)
 
 
-void printDiff(float *data1, float *data2, int width, int height, int iListLength, float fListTol)
-{
-    printf("Listing first %d Differences > %.6f...\n", iListLength, fListTol);
-    int i,j,k;
-    int error_count=0;
-
-    for (j = 0; j < height; j++)
-    {
-        if (error_count < iListLength)
-        {
-            printf("\n  Row %d:\n", j);
-        }
-
-        for (i = 0; i < width; i++)
-        {
-            k = j * width + i;
-            float fDiff = fabs(data1[k] - data2[k]);
-
-            if (fDiff > fListTol)
-            {
-                if (error_count < iListLength)
-                {
-                    printf("    Loc(%d,%d)\tCPU=%.5f\tGPU=%.5f\tDiff=%.6f\n", i, j, data1[k], data2[k], fDiff);
-                }
-
-                error_count++;
-            }
-        }
-    }
-
-    printf(" \n  Total Errors = %d\n", error_count);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//! Compute reference data set matrix multiply on CPU
-//! C = A * B
-//! @param C          reference data, computed but preallocated
-//! @param A          matrix A as provided to device
-//! @param B          matrix B as provided to device
-//! @param hA         height of matrix A
-//! @param wB         width of matrix B
-////////////////////////////////////////////////////////////////////////////////
+// Compute reference data set matrix multiply on CPU
 void matrixMulCPU(float *C, const float *A, const float *B, unsigned int hA, unsigned int wA, unsigned int wB)
 {
     for (unsigned int i = 0; i < hA; ++i)
@@ -94,6 +53,7 @@ void matrixMulCPU(float *C, const float *A, const float *B, unsigned int hA, uns
         }
 }
 
+
 // vertion 1, using if braching
 void binarize_cpu_v1(float* result_matrix, unsigned int* codes, int npoints, int codelen){
     int table_id;
@@ -103,7 +63,7 @@ void binarize_cpu_v1(float* result_matrix, unsigned int* codes, int npoints, int
         for(int j=0; j<codelen; j++){
             offset = i*codelen + j;
             if(result_matrix[offset] > 0){
-                bit = 1u << (j % 32);    
+                bit = 1u << (j % 32);
                 codes[table_id*npoints + i] |= bit;
             }
         }
@@ -121,18 +81,19 @@ void binarize_cpu_v2(float* result_matrix, unsigned int* codes, int npoints, int
             table_id = j / 32;
             offset = i*codelen + j;
             bit = (*(unsigned int*)(result_matrix + offset)) >> 31; // get sign bit of a float number
-            bit = bit << (j%32); 
+            bit = bit << (j%32);
             codes[table_id*npoints + i] |= bit;
         }
     }
 }
+
 
 __global__
 void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, int ntables, int N)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int start = index*32;
-    if(start >= N) 
+    if(start >= N)
         return;
     int len = min(32, N-start);
     int table_id = index % ntables;
@@ -170,33 +131,6 @@ void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, 
 }
 
 
-
-
-
-
-// void binarize_gpu(float* d_result_matrix, unsigned int* codes, int npoints, int ntables){
-//     unsigned int * d_codes;
-//     unsigned int  size = npoints * ntables;
-//     unsigned int mem_size = sizeof(unsigned int) * size;
-
-//     checkCudaErrors(cudaMalloc((void **) &d_codes, mem_size));
-//     checkCudaErrors(cudaMemset(d_codes, 0, mem_size));
-
-//     // Run kernel on the GPU
-//     int N = npoints * ntables * 32; // size of result matrix
-//     int blockSize = 1024;
-//     int numBlocks = (N/32 + blockSize - 1) / blockSize;
-//     printf("numBlocks %d, blockSize %d, %d, %d\n", numBlocks, blockSize, npoints*ntables, N);
-    
-//     kernel_binarize_v1<<<numBlocks, blockSize>>>(result_matrix, d_codes, npoints, ntables, N);
-    
-//     checkCudaErrors(cudaDeviceSynchronize());
-//     // copy result from device to host
-//     printf("mem_size %u\n", mem_size);
-//     checkCudaErrors(cudaMemcpy(codes, d_codes, mem_size, cudaMemcpyDeviceToHost));
-// }
-
-
 void generate_random_matrix_projection_cpu(float * matrix_projection, int size) {
     unsigned seed = 2018;
     std::default_random_engine generator(seed);
@@ -223,21 +157,9 @@ void generate_random_matrix_projection(float * matrix_projection, int size) {
 }
 
 
-void init_matrix_size(sMatrixSize &matrix_size, size_t npoints, int dim, int codelen){
-    matrix_size.uiHA = npoints;
-    matrix_size.uiWA = dim;
-
-    matrix_size.uiHB = dim;
-    matrix_size.uiWB = codelen;
-
-    matrix_size.uiHC = npoints;
-    matrix_size.uiWC = codelen;
-    
-}
-
 void matrix_multiply_cuda(float* h_A, float* h_B, float* h_C, sMatrixSize &matrix_size){
     float *d_A, *d_B, *d_C;
-    // compute memory size    
+    // compute memory size
     unsigned int size_A = matrix_size.uiWA * matrix_size.uiHA;
     unsigned int mem_size_A = sizeof(float) * size_A;
     unsigned int size_B = matrix_size.uiWB * matrix_size.uiHB;
@@ -253,7 +175,7 @@ void matrix_multiply_cuda(float* h_A, float* h_B, float* h_C, sMatrixSize &matri
     // copy host memory to device memory
     checkCudaErrors(cudaMemcpy(d_A, h_A, mem_size_A, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(d_B, h_B, mem_size_B, cudaMemcpyHostToDevice));
-    
+
     // setup execution parameters
     int block_size = 32;
     dim3 threads(block_size, block_size);
@@ -262,9 +184,9 @@ void matrix_multiply_cuda(float* h_A, float* h_B, float* h_C, sMatrixSize &matri
     // execute the kernel, CUBLAS version 2.0
     const float alpha = 1.0f;
     const float beta  = 0.0f;
-    cublasHandle_t handle;   
+    cublasHandle_t handle;
     checkCudaErrors(cublasCreate(&handle));
-  
+
     //note cublas is column primary! need to transpose the order!
     checkCudaErrors(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix_size.uiWB, matrix_size.uiHA, matrix_size.uiWA, &alpha, d_B, matrix_size.uiWB, d_A, matrix_size.uiWA, &beta, d_C, matrix_size.uiWB));
 
@@ -285,7 +207,7 @@ void matrix_multiply_cuda(float* h_A, float* h_B, float* h_C, sMatrixSize &matri
 void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matrix_size){
     float *d_A, *d_B, *d_C;
     unsigned int * d_codes;
-    // compute memory size    
+    // compute memory size
     unsigned int size_A = matrix_size.uiWA * matrix_size.uiHA;
     unsigned int mem_size_A = sizeof(float) * size_A;
     unsigned int size_B = matrix_size.uiWB * matrix_size.uiHB;
@@ -293,7 +215,7 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
     unsigned int size_C = matrix_size.uiWC * matrix_size.uiHC;
     unsigned int mem_size_C = sizeof(float) * size_C;
 
-    
+
     unsigned int npoints = matrix_size.uiHC;
     unsigned int ntables = matrix_size.uiWC/32;
     unsigned int codelen = ntables * 32;
@@ -310,7 +232,7 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
     checkCudaErrors(cudaMemset(d_codes, 0, mem_size_codes));
     checkCudaErrors(cudaMemcpy(d_A, h_A, mem_size_A, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(d_B, h_B, mem_size_B, cudaMemcpyHostToDevice));
-    
+
     // setup execution parameters
     int block_size = 32;
     dim3 threads(block_size, block_size);
@@ -319,9 +241,9 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
     // execute the kernel, CUBLAS version 2.0
     const float alpha = 1.0f;
     const float beta  = 0.0f;
-    cublasHandle_t handle;   
+    cublasHandle_t handle;
     checkCudaErrors(cublasCreate(&handle));
-  
+
     //matrix multiplication note cublas is column primary! need to transpose the order!
     checkCudaErrors(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix_size.uiWB, matrix_size.uiHA, matrix_size.uiWA, &alpha, d_B, matrix_size.uiWB, d_A, matrix_size.uiWA, &beta, d_C, matrix_size.uiWB));
     float *h_C = new float[npoints*codelen];
@@ -340,7 +262,7 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
 
     kernel_binarize_v2<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoints, ntables);
     checkCudaErrors(cudaDeviceSynchronize());
-    
+
     // copy result
     checkCudaErrors(cudaMemcpy(codes, d_codes, mem_size_codes, cudaMemcpyDeviceToHost));
 
@@ -354,22 +276,6 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
 
 }
 
-bool verify_correctness(float *matrix_data, float *matrix_projection, float *matrix_result, sMatrixSize &matrix_size){
-    unsigned int size_C = matrix_size.uiWC * matrix_size.uiHC;
-    unsigned int mem_size_C = sizeof(float) * size_C;
-    float *reference = (float *) malloc(mem_size_C);
-    
-    matrixMulCPU(reference, matrix_data, matrix_projection, matrix_size.uiHA, matrix_size.uiWA, matrix_size.uiWB);
-    // check result (CUBLAS)
-    bool resCUBLAS = sdkCompareL2fe(reference, matrix_result, size_C, 1.0e-6f);
-
-    if (resCUBLAS != true)
-        printDiff(reference, matrix_result, matrix_size.uiWC, matrix_size.uiHC, 100, 1.0e-5f);
-    else
-        printf("verify correctness succeed!\n");
-    delete [] reference;
-    return resCUBLAS;
-}
 
 void build_index(float* matrix_data, size_t npoints, int dim, int ntables, unsigned int *&codes, float*&matrix_projection){
     int codelen = ntables * 32;
@@ -380,30 +286,6 @@ void build_index(float* matrix_data, size_t npoints, int dim, int ntables, unsig
     generate_random_matrix_projection_cpu(matrix_projection, codelen * dim);
     build_index_gpu(matrix_data, matrix_projection, codes, matrix_size);
 
-}
-
-
-void saveIndex(char* filename, unsigned int *codes, float *matrix_projection, unsigned int dim, unsigned int ntables, unsigned int npoints){
-    std::ofstream out(filename,std::ios::binary);
-    if(!out.is_open()){std::cout<<"open file error"<<std::endl;exit(-1);}
-    unsigned int codelen = ntables * 32;
-
-    out.write((char*)&dim, sizeof(unsigned int));
-    out.write((char*)&codelen, sizeof(unsigned int));
-
-    //write projection matrix
-    for (unsigned i = 0; i < codelen * dim; i++) {
-        out.write((char*)&matrix_projection[i], sizeof(float));
-    }
-
-    //write codes
-    out.write((char*)&npoints, sizeof(unsigned int));
-    out.write((char*)&ntables, sizeof(unsigned int));
-    for (size_t i = 0; i < ntables*npoints; i++) {
-        out.write((char*)&codes[i], sizeof(unsigned int));
-    }
-    printf("index saved! dim %u, ntable %u, npoint %u\n", dim, ntables, npoints);
-    out.close();
 }
 
 
@@ -420,7 +302,7 @@ int main(int argc, char** argv) {
     unsigned int npoints;
     unsigned int dim;
     load_data(data_file, matrix_data, npoints, dim);
-    
+
     // build index
     unsigned int codelen = ntables * 32;
     float *matrix_projection = new float[codelen * dim];

@@ -15,18 +15,20 @@ CXXFLAGS=-std=c++11 -m64 -O3 -Wall -g
 CC=gcc
 CFLAGS=-std=c++11 -O3 -m64 -Wall
 
+INDEX_OBJS=util.o index.o
+SEARCH_OBJS=util.o search.o
 
 util.o: util.cpp
 	$(CXX) $(CXXFLAGS) -c -o util.o util.cpp $(LDFLAGS)
 
-%.o: %.cu 
+%.o: %.cu
 	$(NVCC) $< $(NVCCFLAGS) -c -o $@ $(LDFLAGS)
 
-index: index.o util.o 
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
+index: $(INDEX_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(INDEX_OBJS) $(LDFLAGS)
 
-search: search.o util.o 
-	$(CXX) $(CXXFLAGS) -o $@ search.o $(LDFLAGS)
+search: $(SEARCH_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(SEARCH_OBJS) $(LDFLAGS)
 
 evaluation: evaluation.cpp
 	$(CXX) $(CXXFLAGS) -o $@ evaluation.cpp

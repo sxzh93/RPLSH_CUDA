@@ -28,6 +28,8 @@
 #include <thrust/fill.h>
 #include <thrust/sequence.h>
 
+#include "util.h"
+
 #ifndef min
 #define min(a,b) ((a < b) ? a : b)
 #endif
@@ -86,7 +88,6 @@ void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, 
     }
     codes[table_id*npoints + point_id] |= bit;
 }
-
 
 
 __global__
@@ -214,49 +215,6 @@ void kernel_get_result_v1(unsigned int* d_euclidean_distance_idx, unsigned int* 
 }
 
 
-
-
-// __global__
-// void kernel_l2_distance_v1(unsigned int* d_query_codes, unsigned int* d_base_codes, unsigned int* d_l2_distance, int nbase, int nquery, int ntable){
-//     int base_idx = blockIdx.x * blockDim.x + threadIdx.x;
-//     int query_idx = blockIdx.y * blockDim.y + threadIdx.y;
-
-//     float distance = 0.0;
-//     for(int i=0;i<dim;i=0){
-
-//     }
-
-//     d_l2_distance[query_idx*L+base_idx] += compute_l2_distance(d_query_matrix[query_idx], d_base_matrix[base_idx]);
-// }
-
-
-void load_index(char* filename,  unsigned int *&codes, float *&matrix_projection, unsigned int &dim, unsigned int &ntable, unsigned int &npoint){
-    std::ifstream in(filename, std::ios::binary);
-    if(!in.is_open()){std::cout<<"open file error"<<std::endl;exit(-1);}
-
-    //read projection matrix
-    unsigned int codelen;
-
-    in.read((char*)&dim,sizeof(int));
-    in.read((char*)&codelen,sizeof(int));
-    ntable = codelen / 32;
-    matrix_projection = new float[codelen * dim];
-    for (unsigned i = 0; i < codelen * dim; i++) {
-        in.read((char*)&matrix_projection[i], sizeof(float));
-    }
-
-    // read codes
-    in.read((char*)&npoint, sizeof(unsigned int));
-    in.read((char*)&ntable, sizeof(unsigned int));
-    codes = new unsigned int [npoint * ntable];
-    for (size_t i = 0; i < ntable*npoint; i++) {
-        in.read((char*)&(codes[i]),sizeof(unsigned int));
-    }
-    in.close();
-    printf("Index loaded! dim %u, codelen %u ntable %u, npoints %u\n", dim, codelen, ntable, npoint);
-}
-
-
 void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSize &matrix_size, int npoint, int ntable){
     // alloc device memory to store projection result
     float *d_C;
@@ -283,7 +241,7 @@ void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSiz
     // unsigned int size_codes =  npoint*ntable;
     // int numBlocks = (size_codes + blockSize - 1) / blockSize;
     // kernel_binarize_v1<<<numBlocks, blockSize>>>(d_C, d_codes, npoint, ntable, size_C);
-    
+
     // float *h_C = new float[size_C];
     // checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
     // float sum = 0;
@@ -346,10 +304,10 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     //------------------- debug -------------------
     // printf("projection matrix: \n");
     // print_hash_float(projection_matrix, size_projection_matrix);
-    
+
     // unsigned int *h_query_codes = new unsigned int[size_query_codes];
     // checkCudaErrors(cudaMemcpy(h_query_codes, d_query_codes, mem_size_query_codes, cudaMemcpyDeviceToHost));
-    
+
     // unsigned int sum_u = 0;
     // for(int table_id = 0; table_id<ntable;table_id++){
     //     sum_u += h_query_codes[table_id*nquery];
@@ -407,7 +365,7 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     // printf("step2 hamming distance, query 0 sum_hd %u\n\n", sum_hd);
     //------------------- debug -------------------
     END_ACTIVITY(COMPUTE_HAMMING_DISTANCE);
-    
+
 
 
 
@@ -473,7 +431,7 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     // unsigned int *h_euclidean_distance_idx = new unsigned int[size_euclidean_distance_idx];
     // checkCudaErrors(cudaMemcpy(h_euclidean_distance_idx, d_euclidean_distance_idx, mem_size_euclidean_distance_idx , cudaMemcpyDeviceToHost));
 
-    
+
     // for(int i=0;i<20;i++){
     //     printf("%f %d ", h_euclidean_distance[i], (int)h_euclidean_distance_idx[i]);
     // }
@@ -536,7 +494,7 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     // printf("\n\n");
     //------------------- debug -------------------
 
-    
+
 
     //free memory
     checkCudaErrors(cudaFree(d_result));
@@ -601,7 +559,7 @@ int main(int argc, char** argv){
         knn_search(result+n_completed*K, base_matrix, query_matrix + n_completed*query_dim, matrix_projection, base_codes, base_dim, ntable, nbase, tmp_nquery, L, K, min(min_value_base, min_value_query), max(max_value_base, max_value_query));
         n_remain -= tmp_nquery;
         n_completed += tmp_nquery;
-        
+
     }
     auto e = std::chrono::high_resolution_clock::now();
 
@@ -610,6 +568,6 @@ int main(int argc, char** argv){
     std::cout << "query searching time: " << diff.count() << "\n";
 
     PRINT_PROFILER;
-    saveResults(result_file, result, nquery, K);
+    saveKNNResults(result_file, result, nquery, K);
     return 0;
 }
