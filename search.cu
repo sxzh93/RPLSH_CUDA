@@ -230,59 +230,6 @@ void kernel_get_result_v1(unsigned int* d_euclidean_distance_idx, unsigned int* 
 // }
 
 
-void print_hash_float(float *array, int size){
-    float sum = 0;
-    for(int i=0;i<size;i++){
-        sum+=array[i];
-    }
-    printf("sum %f\n", sum);
-}
-
-void print_hash_int(unsigned int *array, int size){
-    unsigned int sum = 0;
-    for(int i=0;i<size;i++){
-        sum+=array[i];
-    }
-    printf("sum %u\n", sum);
-}
-
-void load_data(char* filename, float*& data, unsigned int& num, unsigned int& dim) { // load data with sift10K pattern
-    ifstream in(filename, ios::binary);
-    if (!in.is_open()) {cout << "open file error" << endl; exit(-1);}
-    //read dim
-    in.read((char*)&dim, 4);
-
-    //read fsize
-    in.seekg(0, ios::end);
-    ios::pos_type ss = in.tellg();
-    size_t fsize = (size_t)ss;
-
-    //read number of vector(dim + data)
-    num = fsize / (dim + 1) / 4;
-
-    //read data
-    data = new float[num * dim];
-    in.seekg(0, ios::beg);
-    for (size_t i = 0; i < num; i++) {
-        in.seekg(4, ios::cur);
-        in.read((char*)(data + i * dim), dim * 4);
-    }
-    in.close();
-    cout << "load data okay, npoints " << num << ", dim " << dim << endl;
-}
-
-void init_matrix_size(sMatrixSize &matrix_size, size_t npoints, int dim, int codelen){
-    matrix_size.uiHA = npoints;
-    matrix_size.uiWA = dim;
-
-    matrix_size.uiHB = dim;
-    matrix_size.uiWB = codelen;
-
-    matrix_size.uiHC = npoints;
-    matrix_size.uiWC = codelen;
-
-}
-
 void load_index(char* filename,  unsigned int *&codes, float *&matrix_projection, unsigned int &dim, unsigned int &ntable, unsigned int &npoint){
     std::ifstream in(filename, std::ios::binary);
     if(!in.is_open()){std::cout<<"open file error"<<std::endl;exit(-1);}
@@ -596,19 +543,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     checkCudaErrors(cudaFree(d_euclidean_distance_idx));
 
     END_ACTIVITY(GET_RESULT);
-}
-
-
-void saveResults(char* filename, unsigned int *result, int nquery, int K){
-    std::ofstream out(filename,std::ios::binary);
-    for(int i=0; i<nquery; i++){
-        out.write((char*)&K, sizeof(int));
-        for(int j=0; j<K; j++){
-            int id = result[i*K + j];
-            out.write((char*)&id, sizeof(int));
-        }
-    }
-    out.close();
 }
 
 
