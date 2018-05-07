@@ -13,6 +13,18 @@
 
 using namespace std;
 
+void saveResults(char* filename, long *result, int nquery, int K){
+    std::ofstream out(filename,std::ios::binary);
+    for(int i=0; i<nquery; i++){
+        out.write((char*)&K, sizeof(int));
+        for(int j=0; j<K; j++){
+            int id = result[i*K + j];
+            out.write((char*)&id, sizeof(int));
+        }
+    }
+    out.close();
+}
+
 void load_data(char* filename, float*& data, unsigned int& num, unsigned int& dim) { // load data with sift10K pattern
     ifstream in(filename, ios::binary);
     if (!in.is_open()) {cout << "open file error" << endl; exit(-1);}
@@ -52,8 +64,8 @@ int main(int argc, char **argv) {
     }
     char *base_file = argv[1];
     char *query_file = argv[2];
-    //char *result_file = argv[3];
-    int nlist = atoi(argv[4]);
+    char *result_file = argv[3];
+    //int nlist = atoi(argv[4]);
     int K = atoi(argv[5]);
 
     // load data and query
@@ -65,28 +77,38 @@ int main(int argc, char **argv) {
     assert(base_dim == query_dim);
 
     // Using an IVF index
-    faiss::gpu::GpuIndexIVFFlat index_ivf(&res, base_dim, nlist, faiss::METRIC_L2);
+    //faiss::gpu::GpuIndexIVFFlat index_ivf(&res, base_dim, nlist, faiss::METRIC_L2);
     // here we specify METRIC_L2, by default it performs inner-product search
-
+/*
     assert(!index_ivf.is_trained);
     index_ivf.train(nbase, base_matrix);
     assert(index_ivf.is_trained);
     index_ivf.add(nbase, base_matrix);
-
+    
     printf("is_trained = %s\n", index_ivf.is_trained ? "true" : "false");
     printf("ntotal = %ld\n", index_ivf.ntotal);
+*/
+
+    faiss::gpu::GpuIndexFlatL2 index_flat(&res, base_dim);
+
+    printf("is_trained = %s\n", index_flat.is_trained ? "true" : "false");
+    index_flat.add(nbase, base_matrix);  // add vectors to the index
+    printf("ntotal = %ld\n", index_flat.ntotal);
 
     // begin search
     long *I = new long[K*nquery];
     float *D = new float[K*nquery];
 
     auto s = chrono::high_resolution_clock::now();
-    index_ivf.search(nquery, query_matrix, K, D, I);
+    //index_ivf.search(nquery, query_matrix, K, D, I);
+    index_flat.search(nquery, query_matrix, K, D, I);
     auto e = chrono::high_resolution_clock::now();
 
     // report time
     chrono::duration<double> diff = e-s;
     cout<<"faiss query searching time: "<<diff.count()<<endl;
+
+    saveResults(result_file, I, nquery, K);
 
     delete [] I;
     delete [] D;

@@ -5,3 +5,5 @@ search
 gist*
 sift*
 faiss_knn
+evaluation
+*result_*
