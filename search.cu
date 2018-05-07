@@ -64,29 +64,8 @@ static const int GET_RESULT = 5;
 #define PRINT_PROFILER
 #endif
 
-// vertion 1, do not using if braching, have bugs
 __global__
-void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, int ntables, int N){
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int start = index*32;
-    if(start >= N)
-        return;
-    int len = min(32, N-start);
-    int table_id = index % ntables;
-    int point_id = index / ntables;
-
-    unsigned int bit = 0;
-    unsigned int val;
-    for(int i=0;i<len;i++){
-        val = (*(unsigned int*)(result_matrix + start + i)) >> 31;
-        bit = bit | (val << i);
-    }
-    codes[table_id*npoints + point_id] |= bit;
-}
-
-
-__global__
-void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, int ntables)
+void kernel_binarize(float* result_matrix, unsigned int* codes, int npoints, int ntables)
 {
     int point_id = blockIdx.x * blockDim.x + threadIdx.x;
     int table_id = blockIdx.y * blockDim.y + threadIdx.y;
@@ -106,42 +85,8 @@ void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, 
     codes[table_id*npoints+point_id] = result;
 }
 
-
-
-// we can use shared memory to reduce memory access time: load query_base into shared memory, how to determize needed size
-// not cache efficiently: re-order index structure
 __global__
-void kernel_hamming_distance_v1(unsigned int* d_query_codes, unsigned int* d_base_codes, unsigned int* d_hamming_distance, int nbase, int nquery, int ntable){
-    int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int base_idx = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if(base_idx>=nbase || query_idx>=nquery || query_idx*nbase + base_idx >= (nquery*nbase))
-        return;
-
-    int base_start = 0;
-    int query_start = 0;
-    unsigned int x;
-    unsigned int result;
-    for (size_t i = 0; i < ntable; i++) {
-        x = d_base_codes[base_start+base_idx] ^ d_query_codes[query_start+query_idx];
-        //compute number of 1 in x
-        x = (x & 0x55555555) + ((x >> 1 ) & 0x55555555);
-        x = (x & 0x33333333) + ((x >> 2 ) & 0x33333333);
-        x = (x & 0x0f0f0f0f) + ((x >> 4 ) & 0x0f0f0f0f);
-        x = (x & 0x00ff00ff) + ((x >> 8 ) & 0x00ff00ff);
-        x = (x & 0x0000ffff) + ((x >> 16) & 0x0000ffff);
-
-        result += x;
-        base_start += nbase;
-        query_start += nquery;
-    }
-    d_hamming_distance[query_idx*nbase + base_idx] = result;
-    //d_hamming_distance[query_idx*nbase + base_idx] = result + (query_idx<<16);
-}
-
-
-__global__
-void kernel_hamming_distance_v2(unsigned int* d_query_codes, unsigned int* d_base_codes, unsigned int* d_hamming_distance, int nbase, int nquery, int ntable, unsigned int* d_hamming_distance_idx){
+void kernel_hamming_distance(unsigned int* d_query_codes, unsigned int* d_base_codes, unsigned int* d_hamming_distance, int nbase, int nquery, int ntable, unsigned int* d_hamming_distance_idx){
     unsigned int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int base_idx = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -175,7 +120,7 @@ void kernel_hamming_distance_v2(unsigned int* d_query_codes, unsigned int* d_bas
 
 //TODO optimize IO
 __global__
-void kernel_euclidean_distance_v1(float* d_query_matrix, float* d_base_matrix, unsigned int* d_hamming_distance_idx, double* d_euclidean_distance,  int nquery, int nbase, int L, int dim, float min_value, float max_value, unsigned int* d_euclidean_distance_idx){
+void kernel_euclidean_distance(float* d_query_matrix, float* d_base_matrix, unsigned int* d_hamming_distance_idx, double* d_euclidean_distance,  int nquery, int nbase, int L, int dim, float min_value, float max_value, unsigned int* d_euclidean_distance_idx){
     int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int L_idx = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -199,7 +144,7 @@ void kernel_euclidean_distance_v1(float* d_query_matrix, float* d_base_matrix, u
 
 
 __global__
-void kernel_get_result_v1(unsigned int* d_euclidean_distance_idx, unsigned int* d_result, int nquery, int K, int L){
+void kernel_get_result(unsigned int* d_euclidean_distance_idx, unsigned int* d_result, int nquery, int K, int L){
     int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int K_idx = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -231,23 +176,9 @@ void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSiz
     //matrix multiplication note cublas is column primary! need to transpose the order!
     checkCudaErrors(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, matrix_size.uiWB, matrix_size.uiHA, matrix_size.uiWA, &alpha, d_B, matrix_size.uiWB, d_A, matrix_size.uiWA, &beta, d_C, matrix_size.uiWB));
 
-    // Run binarize kernel on the GPU
-    // int blockSize = 1024;
-    // unsigned int size_codes =  npoint*ntable;
-    // int numBlocks = (size_codes + blockSize - 1) / blockSize;
-    // kernel_binarize_v1<<<numBlocks, blockSize>>>(d_C, d_codes, npoint, ntable, size_C);
-
-    // float *h_C = new float[size_C];
-    // checkCudaErrors(cudaMemcpy(h_C, d_C, mem_size_C, cudaMemcpyDeviceToHost));
-    // float sum = 0;
-    // for(unsigned int i=0;i<ntable*32;    //     sum += h_C[i];
-    // printf("projection result sum %f\n", sum);
-
-
-
     dim3 threadsPerBlock(1024/ntable, ntable);
     dim3 numBlocks((npoint + threadsPerBlock.x -1) / threadsPerBlock.x, (ntable+threadsPerBlock.y-1) / threadsPerBlock.y);
-    kernel_binarize_v2<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoint, ntable);
+    kernel_binarize<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoint, ntable);
     checkCudaErrors(cudaDeviceSynchronize());
 
     // clean up device memory
@@ -258,13 +189,39 @@ void compute_index_gpu(float* d_A, float* d_B, unsigned int* d_codes, sMatrixSiz
 }
 
 
+void knn_prepare(float *&d_projection_matrix, unsigned int* &d_base_codes, float *&d_base_matrix, float *projection_matrix, unsigned int *base_codes, float *base_matrix, int dim, int ntable, int nbase){
+    int codelen = ntable * 32;
+    
+    unsigned int size_projection_matrix = dim * codelen;
+    unsigned int mem_size_projection_matrix = sizeof(float) * size_projection_matrix;
+    unsigned int size_base_codes = nbase * ntable;
+    unsigned int mem_size_base_codes = sizeof(unsigned int) * size_base_codes;
+    unsigned int size_base_matrix = nbase * dim;
+    unsigned int mem_size_base_matrix = sizeof(float) * size_base_matrix;
 
-void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, float *projection_matrix, unsigned int* base_codes, unsigned int dim, unsigned int ntable, unsigned int nbase, unsigned int nquery, int L, int K, float min_value, float max_value){
+    checkCudaErrors(cudaMalloc((void **) &d_projection_matrix, mem_size_projection_matrix));
+    checkCudaErrors(cudaMalloc((void **) &d_base_codes, mem_size_base_codes));
+    checkCudaErrors(cudaMalloc((void **) &d_base_matrix, mem_size_base_matrix));
+
+    checkCudaErrors(cudaMemcpy(d_projection_matrix, projection_matrix, mem_size_projection_matrix, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_base_codes, base_codes, mem_size_base_codes, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_base_matrix, base_matrix, mem_size_base_matrix, cudaMemcpyHostToDevice));
+
+}
+
+void knn_free(float *&d_projection_matrix, unsigned int* &d_base_codes, float *&d_base_matrix){
+    checkCudaErrors(cudaFree(d_projection_matrix));
+    checkCudaErrors(cudaFree(d_base_codes));
+    checkCudaErrors(cudaFree(d_base_matrix));
+}
+
+
+void knn_search(unsigned int* result, float *d_base_matrix, float *query_matrix, float *d_projection_matrix, unsigned int* d_base_codes, unsigned int dim, unsigned int ntable, unsigned int nbase, unsigned int nquery, int L, int K, float min_value, float max_value){
 
     //device memory
-    float *d_query_matrix, *d_base_matrix, *d_projection_matrix;
+    float *d_query_matrix;
     double *d_euclidean_distance;
-    unsigned int *d_query_codes, *d_base_codes, *d_hamming_distance, *d_hamming_distance_idx, *d_euclidean_distance_idx, *d_result;
+    unsigned int *d_query_codes, *d_hamming_distance, *d_hamming_distance_idx, *d_euclidean_distance_idx, *d_result;
     int codelen = ntable * 32;
 
     // ============== Step1: Encodes query matrix =====================
@@ -279,43 +236,17 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     checkCudaErrors(cudaMalloc((void **) &d_query_matrix, mem_size_query_matrix));
     checkCudaErrors(cudaMemcpy(d_query_matrix, query_matrix, mem_size_query_matrix, cudaMemcpyHostToDevice));
 
-    //Input: d_projection_matrix
-    unsigned int size_projection_matrix = dim * codelen;
-    unsigned int mem_size_projection_matrix = sizeof(float) * size_projection_matrix;
-    checkCudaErrors(cudaMalloc((void **) &d_projection_matrix, mem_size_projection_matrix));
-    checkCudaErrors(cudaMemcpy(d_projection_matrix, projection_matrix, mem_size_projection_matrix, cudaMemcpyHostToDevice));
-
     //Output: d_query_codes
     unsigned int size_query_codes = nquery * ntable;
     unsigned int mem_size_query_codes = sizeof(unsigned int) * size_query_codes;
     checkCudaErrors(cudaMalloc((void **) &d_query_codes, mem_size_query_codes));
     checkCudaErrors(cudaMemset(d_query_codes, 0, mem_size_query_codes));
 
-
     sMatrixSize matrix_size;
     init_matrix_size(matrix_size, nquery, dim, codelen);
     compute_index_gpu(d_query_matrix, d_projection_matrix, d_query_codes, matrix_size, nquery, ntable);
 
-    //------------------- debug -------------------
-    // printf("projection matrix: \n");
-    // print_hash_float(projection_matrix, size_projection_matrix);
-
-    // unsigned int *h_query_codes = new unsigned int[size_query_codes];
-    // checkCudaErrors(cudaMemcpy(h_query_codes, d_query_codes, mem_size_query_codes, cudaMemcpyDeviceToHost));
-
-    // unsigned int sum_u = 0;
-    // for(int table_id = 0; table_id<ntable;table_id++){
-    //     sum_u += h_query_codes[table_id*nquery];
-    // }
-    // printf("query 0, sum of codes %u \n", sum_u);
-    //------------------- debug -------------------
-
-
-    //Useless: d_projection_matrix
-    checkCudaErrors(cudaFree(d_projection_matrix));
-
     END_ACTIVITY(ENCODE_QUERY_MATRIX);
-
 
     //============== Step2: Compute Hamming Distance =====================
     //Input: d_query_codes, d_base_codes
@@ -324,10 +255,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
 
     //Input: d_base_codes
     START_ACTIVITY(COMPUTE_HAMMING_DISTANCE);
-    unsigned int size_base_codes = nbase * ntable;
-    unsigned int mem_size_base_codes = sizeof(unsigned int) * size_base_codes;
-    checkCudaErrors(cudaMalloc((void **) &d_base_codes, mem_size_base_codes));
-    checkCudaErrors(cudaMemcpy(d_base_codes, base_codes, mem_size_base_codes, cudaMemcpyHostToDevice));
 
     //Output: hamming_distance
     unsigned int size_hamming_distance = nquery * nbase;
@@ -342,26 +269,13 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     dim3 threadsPerBlock(1, 1024);
     dim3 numBlocks((nquery + threadsPerBlock.x -1) / threadsPerBlock.x, (nbase+threadsPerBlock.y-1) / threadsPerBlock.y);
     //kernel_hamming_distance_v1<<<numBlocks, threadsPerBlock>>>(d_query_codes, d_base_codes, d_hamming_distance, nbase, nquery, ntable);
-    kernel_hamming_distance_v2<<<numBlocks, threadsPerBlock>>>(d_query_codes, d_base_codes, d_hamming_distance, nbase, nquery, ntable, d_hamming_distance_idx);
+    kernel_hamming_distance<<<numBlocks, threadsPerBlock>>>(d_query_codes, d_base_codes, d_hamming_distance, nbase, nquery, ntable, d_hamming_distance_idx);
     checkCudaErrors(cudaDeviceSynchronize());
 
     //Useless: d_query_codes, d_base_codes,
     checkCudaErrors(cudaFree(d_query_codes));
-    checkCudaErrors(cudaFree(d_base_codes));
 
-    //------------------- debug -------------------
-    // unsigned int *h_hamming_distance = new unsigned int[size_hamming_distance];
-    // checkCudaErrors(cudaMemcpy(h_hamming_distance, d_hamming_distance, mem_hamming_distance , cudaMemcpyDeviceToHost));
-
-    // unsigned int sum_hd = 0;
-    // for(size_t i = 0; i < nbase; i++){
-    //     sum_hd += (unsigned int)h_hamming_distance[i];
-    // }
-    // printf("step2 hamming distance, query 0 sum_hd %u\n\n", sum_hd);
-    //------------------- debug -------------------
     END_ACTIVITY(COMPUTE_HAMMING_DISTANCE);
-
-
 
 
     //============== Step3: Sort According to Hamming Distance  =====================
@@ -371,17 +285,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
 
     thrust::sort_by_key(d_ptr_keys, d_ptr_keys + size_hamming_distance, d_ptr_values);
 
-    //------------------- debug -------------------
-    // unsigned int *h_hamming_distance_idx = new unsigned int[size_hamming_distance_idx];
-    // checkCudaErrors(cudaMemcpy(h_hamming_distance_idx, d_hamming_distance_idx, mem_hamming_distance_idx , cudaMemcpyDeviceToHost));
-
-    // printf("step3 hamming distance sort\n");
-    // for(int i=0;i<20;i++){
-    //     printf("%d ", (int)h_hamming_distance_idx[i]);
-    // }
-    // printf("\n\n");
-    //------------------- debug -------------------
-
     //Useless: d_hamming_distance
     checkCudaErrors(cudaFree(d_hamming_distance));
     END_ACTIVITY(HAMMING_DISTANCE_SORTING);
@@ -390,15 +293,9 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     //Input: d_query_matrix, d_base_matrix, d_hamming_distance_idx
     //Output: d_euclidean_distance
     //Memory Cost: memcost = d_hamming_distance_idx + d_base_matrix = 1G + 1G, if nquery=1000, dim=960
-
     //Input: d_base_matrix
 
-    // s = std::chrono::high_resolution_clock::now();
     START_ACTIVITY(COMPUTE_EUCLIDEAN_DISTANCE);
-    unsigned int size_base_matrix = nbase * dim;
-    unsigned int mem_size_base_matrix = sizeof(float) * size_base_matrix;
-    checkCudaErrors(cudaMalloc((void **) &d_base_matrix, mem_size_base_matrix));
-    checkCudaErrors(cudaMemcpy(d_base_matrix, base_matrix, mem_size_base_matrix, cudaMemcpyHostToDevice));
 
     //Output: d_euclidean_distance
     unsigned int size_euclidean_distance = nquery * L;
@@ -414,29 +311,10 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     threadsPerBlock.y = 1024;
     numBlocks.x = (nquery + threadsPerBlock.x -1) / threadsPerBlock.x;
     numBlocks.y = (L+threadsPerBlock.y-1) / threadsPerBlock.y;
-    kernel_euclidean_distance_v1<<<numBlocks, threadsPerBlock>>>(d_query_matrix, d_base_matrix, d_hamming_distance_idx, d_euclidean_distance, nquery, nbase, L, dim, min_value, max_value, d_euclidean_distance_idx);
+    kernel_euclidean_distance<<<numBlocks, threadsPerBlock>>>(d_query_matrix, d_base_matrix, d_hamming_distance_idx, d_euclidean_distance, nquery, nbase, L, dim, min_value, max_value, d_euclidean_distance_idx);
     checkCudaErrors(cudaDeviceSynchronize());
-
-
-    //------------------- debug -------------------
-    // printf("step4 euclidean distance \n");
-    // float *h_euclidean_distance = new float[size_euclidean_distance];
-    // checkCudaErrors(cudaMemcpy(h_euclidean_distance, d_euclidean_distance, mem_size_euclidean_distance , cudaMemcpyDeviceToHost));
-
-    // unsigned int *h_euclidean_distance_idx = new unsigned int[size_euclidean_distance_idx];
-    // checkCudaErrors(cudaMemcpy(h_euclidean_distance_idx, d_euclidean_distance_idx, mem_size_euclidean_distance_idx , cudaMemcpyDeviceToHost));
-
-
-    // for(int i=0;i<20;i++){
-    //     printf("%f %d ", h_euclidean_distance[i], (int)h_euclidean_distance_idx[i]);
-    // }
-    // printf("\n\n");
-    //------------------- debug -------------------
-
-
     //Useless
     checkCudaErrors(cudaFree(d_query_matrix));
-    checkCudaErrors(cudaFree(d_base_matrix));
     checkCudaErrors(cudaFree(d_hamming_distance_idx));
 
     END_ACTIVITY(COMPUTE_EUCLIDEAN_DISTANCE);
@@ -447,17 +325,6 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     thrust::device_ptr<double> d_ptr_keys_2 = thrust::device_pointer_cast(d_euclidean_distance);
     thrust::device_ptr<unsigned int> d_ptr_values_2 = thrust::device_pointer_cast(d_euclidean_distance_idx);
     thrust::sort_by_key(d_ptr_keys_2, d_ptr_keys_2 + size_euclidean_distance, d_ptr_values_2);
-
-    //------------------- debug -------------------
-    // printf("step5 euclidean distance sort\n");
-    // checkCudaErrors(cudaMemcpy(h_euclidean_distance, d_euclidean_distance, mem_size_euclidean_distance , cudaMemcpyDeviceToHost));
-    // checkCudaErrors(cudaMemcpy(h_euclidean_distance_idx, d_euclidean_distance_idx, mem_size_euclidean_distance_idx , cudaMemcpyDeviceToHost));
-    // for(int i=0;i<20;i++){
-    //     printf("%f %d ", h_euclidean_distance[i], (int)h_euclidean_distance_idx[i]);
-    // }
-    // printf("\n\n");
-    //------------------- debug -------------------
-
 
     //Useless: d_euclidean_distance
     checkCudaErrors(cudaFree(d_euclidean_distance));
@@ -475,21 +342,11 @@ void knn_search(unsigned int* result, float *base_matrix, float *query_matrix, f
     threadsPerBlock.y = 32;
     numBlocks.x = (nquery + threadsPerBlock.x -1) / threadsPerBlock.x;
     numBlocks.y = (K+threadsPerBlock.y-1) / threadsPerBlock.y;
-    kernel_get_result_v1<<<numBlocks, threadsPerBlock>>>(d_euclidean_distance_idx, d_result, nquery, K, L);
+    kernel_get_result<<<numBlocks, threadsPerBlock>>>(d_euclidean_distance_idx, d_result, nquery, K, L);
     checkCudaErrors(cudaDeviceSynchronize());
 
     //move result to CPU
     checkCudaErrors(cudaMemcpy(result, d_result, mem_size_result, cudaMemcpyDeviceToHost));
-
-    //------------------- debug -------------------
-    // printf("step6 get result\n");
-    // for(int i=0;i<30;i++){
-    //     printf("%d ", result[i]);
-    // }
-    // printf("\n\n");
-    //------------------- debug -------------------
-
-
 
     //free memory
     checkCudaErrors(cudaFree(d_result));
@@ -503,7 +360,7 @@ int main(int argc, char** argv){
 
     float *base_matrix = NULL;
     float *query_matrix = NULL;
-    float *matrix_projection = NULL;
+    float *projection_matrix = NULL;
     unsigned int *base_codes = NULL;
     unsigned int *result = NULL;
 
@@ -512,6 +369,9 @@ int main(int argc, char** argv){
     unsigned int ntable=0;
     unsigned int base_dim=0;
     unsigned int query_dim=0;
+
+    float *d_base_matrix, *d_projection_matrix;
+    unsigned int * d_base_codes;
 
     // parse argument
     if(argc!=9){cout<< argv[0] << " index_file data_file query_file result_file ntable initsz querNN batch_size )" <<endl; exit(-1);}
@@ -530,7 +390,7 @@ int main(int argc, char** argv){
 
     // load index
     result = new unsigned int [nquery*K];
-    load_index(index_file, base_codes, matrix_projection, base_dim, ntable, nbase);
+    load_index(index_file, base_codes, projection_matrix, base_dim, ntable, nbase);
 
 
     float min_value_query = *std::min_element(query_matrix, query_matrix + nquery*query_dim);
@@ -549,9 +409,13 @@ int main(int argc, char** argv){
     int n_remain = nquery;
     int n_completed = 0;
     auto s = std::chrono::high_resolution_clock::now();
+
+    
+    knn_prepare(d_projection_matrix, d_base_codes, d_base_matrix, projection_matrix, base_codes, base_matrix, base_dim, ntable, nbase);
+
     while(n_remain>0){
         int tmp_nquery = min(batch_size, n_remain);
-        knn_search(result+n_completed*K, base_matrix, query_matrix + n_completed*query_dim, matrix_projection, base_codes, base_dim, ntable, nbase, tmp_nquery, L, K, min(min_value_base, min_value_query), max(max_value_base, max_value_query));
+        knn_search(result+n_completed*K, d_base_matrix, query_matrix + n_completed*query_dim, d_projection_matrix, d_base_codes, base_dim, ntable, nbase, tmp_nquery, L, K, min(min_value_base, min_value_query), max(max_value_base, max_value_query));
         n_remain -= tmp_nquery;
         n_completed += tmp_nquery;
 
@@ -564,5 +428,12 @@ int main(int argc, char** argv){
 
     PRINT_PROFILER;
     saveKNNResults(result_file, result, nquery, K);
+
+
+    knn_free(d_projection_matrix, d_base_codes, d_base_matrix);
+    delete [] projection_matrix;
+    delete [] base_codes;
+    delete [] base_matrix;
+
     return 0;
 }

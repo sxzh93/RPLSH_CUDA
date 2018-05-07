@@ -57,16 +57,16 @@ buildgist16: index
 	./index ./gist/gist_base.fvecs gist_index_16_table 16
 
 searchgist2: search
-	./search gist_index_2_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_2_table 2 50000 100 400
+	./search gist_index_2_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_2_table 2 50000 100 250
 
 searchgist4: search
-	./search gist_index_4_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_4_table 4 50000 100 400
+	./search gist_index_4_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_4_table 4 50000 100 250
 
 searchgist8: search
-	./search gist_index_8_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_8_table 8 50000 100 400
+	./search gist_index_8_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_8_table 8 50000 100 250
 
 searchgist16: search
-	./search gist_index_16_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_16_table 16 50000 100 400
+	./search gist_index_16_table ./gist/gist_base.fvecs ./gist/gist_query.fvecs gist_result_16_table 16 50000 100 250
 
 buildsift2: index
 	./index ./sift/sift_base.fvecs sift_index_2_table 2
@@ -81,13 +81,13 @@ buildsift16: index
 	./index ./sift/sift_base.fvecs sift_index_16_table 16
 
 searchsift2: search
-	./search sift_index_2_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_2_table 2 50000 100 400
+	./search sift_index_2_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_2_table 2 50000 100 250
 
 searchsift4: search
-	./search sift_index_4_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_4_table 4 50000 100 400
+	./search sift_index_4_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_4_table 4 50000 100 250
 
 searchsift8: search
-	./search sift_index_8_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_8_table 8 50000 100 400
+	./search sift_index_8_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_8_table 8 50000 100 250
 
 searchsift16: search
-	./search sift_index_16_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_16_table 16 50000 100 400
+	./search sift_index_16_table ./sift/sift_base.fvecs ./sift/sift_query.fvecs sift_result_16_table 16 50000 100 250
