@@ -53,64 +53,8 @@ void matrixMulCPU(float *C, const float *A, const float *B, unsigned int hA, uns
         }
 }
 
-
-// vertion 1, using if braching
-void binarize_cpu_v1(float* result_matrix, unsigned int* codes, int npoints, int codelen){
-    int table_id;
-    int offset;
-    unsigned int bit;
-    for(int i=0; i<npoints; i++){
-        for(int j=0; j<codelen; j++){
-            offset = i*codelen + j;
-            if(result_matrix[offset] > 0){
-                bit = 1u << (j % 32);
-                codes[table_id*npoints + i] |= bit;
-            }
-        }
-    }
-}
-
-
-// vertion 2, binarize without if
-void binarize_cpu_v2(float* result_matrix, unsigned int* codes, int npoints, int codelen){
-    int table_id;
-    int offset;
-    unsigned int bit;
-    for(int i=0; i<npoints; i++){
-        for(int j=0; j<codelen; j++){
-            table_id = j / 32;
-            offset = i*codelen + j;
-            bit = (*(unsigned int*)(result_matrix + offset)) >> 31; // get sign bit of a float number
-            bit = bit << (j%32);
-            codes[table_id*npoints + i] |= bit;
-        }
-    }
-}
-
-
 __global__
-void kernel_binarize_v1(float* result_matrix, unsigned int* codes, int npoints, int ntables, int N)
-{
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int start = index*32;
-    if(start >= N)
-        return;
-    int len = min(32, N-start);
-    int table_id = index % ntables;
-    int point_id = index / ntables;
-
-    unsigned int bit = 0;
-    unsigned int val;
-    for(int i=0;i<len;i++){
-        val = (*(unsigned int*)(result_matrix + start + i)) >> 31;
-        bit = bit | (val << i);
-    }
-    codes[table_id*npoints + point_id] |= bit;
-}
-
-
-__global__
-void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, int ntables)
+void kernel_binarize(float* result_matrix, unsigned int* codes, int npoints, int ntables)
 {
     int point_id = blockIdx.x * blockDim.x + threadIdx.x;
     int table_id = blockIdx.y * blockDim.y + threadIdx.y;
@@ -128,12 +72,12 @@ void kernel_binarize_v2(float* result_matrix, unsigned int* codes, int npoints, 
         }
     }
     codes[table_id*npoints+point_id] = result;
+    //codes[point_id*ntables + table_id] = result;
 }
 
 
 void generate_random_matrix_projection_cpu(float * matrix_projection, int size) {
-    unsigned seed = 2018;
-    std::default_random_engine generator(seed);
+    std::default_random_engine generator;
     std::normal_distribution<float> distribution(0.0, 1.0);
     for (int i = 0; i < size; i++) {
         matrix_projection[i] = distribution(generator);
@@ -260,7 +204,7 @@ void build_index_gpu(float* h_A, float* h_B, unsigned* codes, sMatrixSize &matri
     dim3 threadsPerBlock(1024/ntables, ntables);
     dim3 numBlocks((npoints + threadsPerBlock.x -1) / threadsPerBlock.x, (ntables+threadsPerBlock.y-1) / threadsPerBlock.y);
 
-    kernel_binarize_v2<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoints, ntables);
+    kernel_binarize<<<numBlocks, threadsPerBlock>>>(d_C, d_codes, npoints, ntables);
     checkCudaErrors(cudaDeviceSynchronize());
 
     // copy result

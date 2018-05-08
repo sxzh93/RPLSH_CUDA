@@ -64,6 +64,13 @@ static const int GET_RESULT = 5;
 #define PRINT_PROFILER
 #endif
 
+
+#define SQUARE4(v) v.x *= v.x; v.y *= v.y; v.z *= v.z; v.w *= v.w;
+#define MINUS4(v1, v2) v1.x -= v2.x; v1.y -= v2.y; v1.z -= v2.z; v1.w -= v2.w;
+#define REDUCE4(v) v.x += v.y; v.x += v.z; v.x += v.w;
+
+
+
 __global__
 void kernel_binarize(float* result_matrix, unsigned int* codes, int npoints, int ntables)
 {
@@ -135,6 +142,36 @@ void kernel_euclidean_distance(float* d_query_matrix, float* d_base_matrix, unsi
     for(int i=0;i<dim;i++){
         diff = d_query_matrix[query_start+i] - d_base_matrix[base_start+i];
         result += diff * diff;
+    }
+    //normalize result, so result is < 1
+    result = result / (max_value*max_value*dim);
+    d_euclidean_distance[query_idx*L + L_idx] = result + query_idx;
+    d_euclidean_distance_idx[query_idx*L + L_idx] = base_idx;
+}
+
+__global__
+void kernel_euclidean_distance_v2(float* d_query_matrix, float* d_base_matrix, unsigned int* d_hamming_distance_idx, double* d_euclidean_distance,  int nquery, int nbase, int L, int dim, float min_value, float max_value, unsigned int* d_euclidean_distance_idx){
+    int query_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int L_idx = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(query_idx>=nquery || L_idx>=L)
+        return;
+
+    int base_idx = d_hamming_distance_idx[query_idx*nbase + L_idx];
+    int query_start = query_idx*dim/4;
+    int base_start = base_idx*dim/4;
+
+    float4 query_point;
+    float4 base_point;
+    double result = 0;
+    for(int i=0;i<dim/4;i++){
+        query_point = reinterpret_cast<float4*>(d_query_matrix)[query_start+i];
+        base_point = reinterpret_cast<float4*>(d_base_matrix)[base_start+i];
+
+        MINUS4(query_point, base_point);
+        SQUARE4(query_point);
+        REDUCE4(query_point);
+        result += query_point.x;
     }
     //normalize result, so result is < 1
     result = result / (max_value*max_value*dim);
@@ -311,7 +348,7 @@ void knn_search(unsigned int* result, float *d_base_matrix, float *query_matrix,
     threadsPerBlock.y = 1024;
     numBlocks.x = (nquery + threadsPerBlock.x -1) / threadsPerBlock.x;
     numBlocks.y = (L+threadsPerBlock.y-1) / threadsPerBlock.y;
-    kernel_euclidean_distance<<<numBlocks, threadsPerBlock>>>(d_query_matrix, d_base_matrix, d_hamming_distance_idx, d_euclidean_distance, nquery, nbase, L, dim, min_value, max_value, d_euclidean_distance_idx);
+    kernel_euclidean_distance_v2<<<numBlocks, threadsPerBlock>>>(d_query_matrix, d_base_matrix, d_hamming_distance_idx, d_euclidean_distance, nquery, nbase, L, dim, min_value, max_value, d_euclidean_distance_idx);
     checkCudaErrors(cudaDeviceSynchronize());
     //Useless
     checkCudaErrors(cudaFree(d_query_matrix));
